@@ -543,3 +543,68 @@ body{
   box-shadow: var(--ring);
   border-radius: 8px;
 }
+
+/* ===========================
+   MOBILE FIRST (até 980px)
+   =========================== */
+@media (max-width: 980px){
+  /* layout */
+  .shell{ padding: 20px 16px 32px; }
+  .shell--split{ grid-template-columns: 1fr; }
+
+  /* hero deixa de ser “full fixo” e vira um cabeçalho fluido */
+  .hero{
+    position: relative;      /* sai do fixed */
+    inset: auto;
+    min-height: auto;
+    padding: 56px 20px 12px; /* respiro superior */
+    box-shadow: none;
+  }
+  .hero__content{
+    max-width: none;
+    margin: 0 auto;
+    text-align: center;
+  }
+  .hero__logo{
+    height: 140px;
+    margin: 8px auto 12px;
+  }
+  .hero__title,
+  .hero__subtitle,
+  .hero__bullets,
+  .hero__title_forgot,
+  .hero__subtitle_forgot,
+  .hero__bullets_forgot{
+    margin: 0 auto 8px;      /* zera os margin-left enormes */
+  }
+  .hero__bullets,
+  .hero__bullets_forgot{
+    display: inline-block;   /* mantém bullets alinhadas */
+    text-align: left;
+    padding-left: 18px;
+  }
+  .shape{ display:none }     /* some com as “bolhas” no mobile */
+
+  /* cards viram blocos centrados e 100% da largura disponível */
+  .login-card,
+  .login-card-forgot{
+    position: static;        /* sai do absolute */
+    width: 100%;
+    max-width: 560px;
+    margin: 16px auto 32px;  /* centraliza */
+  }
+
+  /* fileiras apertadas empilham melhor */
+  .row-between{
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .row-between .checkbox{ align-self: flex-start; }
+}
+
+/* telefones bem estreitos */
+@media (max-width: 420px){
+  .hero__logo{ height: 110px; }
+  .btn, .btn-primary, .btn-ghost{ padding: 12px 14px; }
+}
