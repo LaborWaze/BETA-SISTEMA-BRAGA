@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Relatórios • Painel</title>
+  <link rel="stylesheet" href="./styles.css"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    .toolbar { display:flex; gap:12px; align-items:center; margin:16px 0; flex-wrap:wrap; }
+    .chip { padding:6px 10px; border-radius:999px; background:#eef0f3; font-size:12px; }
+    .table-wrap { overflow:auto; border:1px solid #e5e7eb; border-radius:12px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { padding:10px 12px; border-bottom:1px solid #eee; }
+    tr:nth-child(even) td { background:#fafafa; }
+    .btn { padding:10px 14px; border-radius:10px; border:1px solid #e5e7eb; background:white; cursor:pointer; }
+    .btn.primary { background:#111827; color:white; border-color:#111827; }
+    .muted { color:#6b7280; }
+    .hidden { display:none !important; }
+  </style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="brand-name">Painel Corporativo</span></div>
+  <div class="user-info">
+    <span id="userName" class="badge"></span>
+    <span id="userRole" class="badge"></span>
+    <button id="logoutBtn" class="btn btn-secondary">Sair</button>
+  </div>
+</header>
+
+<main class="main">
+  <h2 class="title">Relatórios</h2>
+
+  <!-- Barra Admin (upload/filtrar/salvar) -->
+  <section id="adminBar" class="toolbar hidden">
+    <input id="fileInput" type="file" accept=".csv" class="btn"/>
+    <span class="chip">Colunas “pertinentes” pré-selecionadas</span>
+    <button id="btnPreview" class="btn">Pré-visualizar</button>
+    <button id="btnSave" class="btn primary">Salvar no banco</button>
+    <span id="status" class="muted"></span>
+  </section>
+
+  <!-- Barra de edição para níveis inferiores -->
+  <section id="editBar" class="toolbar hidden">
+    <button id="btnReload" class="btn">Recarregar</button>
+    <button id="btnCommit" class="btn primary">Salvar alterações</button>
+    <span class="muted">Dica: clique numa célula para editar.</span>
+    <span id="status2" class="muted"></span>
+  </section>
+
+  <div class="table-wrap" id="tableWrap"></div>
+</main>
+
+<script src="./app.js"></script>
+<script>
+  // ===== CONFIG =====
+  const API = "http://127.0.0.1:8000"; // FastAPI (passo 3)
+  const PERTINENTES = [
+    "cnes","nome_fantasia","cnpj","cnpj_mantenedora","tipo_unidade",
+    "subtipo_unidade","natureza_juridica","gestao","convenio_sus",
+    "telefone","logradouro","complemento","ibge"
+  ];
+  // A lista acima segue a mesma usada no seu script Python (base para o filtro). :contentReference[oaicite:2]{index=2}
+
+  // ===== Sessão / header =====
+  (function init(){
+    const s = (function(){ try{ return JSON.parse(sessionStorage.getItem("app.session")); }catch(e){ return null; }})();
+    if(!s){ window.location.replace("./index.html"); return; }
+    document.getElementById("userName").textContent = s.name;
+    const role = s.role; const $role = document.getElementById("userRole");
+    $role.textContent = role; $role.classList.add("role-" + role);
+    document.getElementById("logoutBtn").onclick = () => { sessionStorage.removeItem("app.session"); location.href="./index.html"; };
+
+    if (role === "admin") {
+      document.getElementById("adminBar").classList.remove("hidden");
+      bindAdmin();
+    } else {
+      document.getElementById("editBar").classList.remove("hidden");
+      bindEditor();
+    }
+  })();
+
+  // ===== Render simples de tabela (com edição opcional) =====
+  function renderTable(rows, editable=false){
+    const $wrap = document.getElementById("tableWrap");
+    if(!rows || !rows.length){ $wrap.innerHTML = "<p class='muted' style='padding:16px'>Sem dados.</p>"; return; }
+    const cols = Object.keys(rows[0]);
+
+    let html = "<table><thead><tr>";
+    html += cols.map(c => `<th>${c}</th>`).join("");
+    html += "</tr></thead><tbody>";
+    for(const r of rows){
+      html += "<tr>";
+      for(const c of cols){
+        const val = r[c] ?? "";
+        html += `<td ${editable ? "contenteditable='true'" : ""} data-col="${c}">${String(val)}</td>`;
+      }
+      html += "</tr>";
+    }
+    html += "</tbody></table>";
+    $wrap.innerHTML = html;
+  }
+
+  function tableToRows(){
+    const $rows = Array.from(document.querySelectorAll("#tableWrap tbody tr"));
+    if(!$rows.length) return [];
+    const cols = Array.from(document.querySelectorAll("#tableWrap thead th")).map(th => th.textContent);
+    return $rows.map(tr => {
+      const obj = {};
+      Array.from(tr.children).forEach((td, i) => obj[cols[i]] = td.textContent.trim());
+      return obj;
+    });
+  }
+
+  // ===== Fluxo ADMIN =====
+  function bindAdmin(){
+    const $file = document.getElementById("fileInput");
+    const $status = document.getElementById("status");
+    const state = { preview: [] };
+
+    document.getElementById("btnPreview").onclick = async () => {
+      if(!$file.files?.length){ alert("Selecione um CSV."); return; }
+      $status.textContent = "Enviando e gerando pré-visualização...";
+      const fd = new FormData();
+      fd.append("file", $file.files[0]);
+      fd.append("columns", JSON.stringify(PERTINENTES));
+
+      const res = await fetch(API + "/api/upload-csv", { method:"POST", body: fd });
+      if(!res.ok){ $status.textContent = "Falhou a pré-visualização."; return; }
+      const data = await res.json();
+      state.preview = data.rows || [];
+      renderTable(state.preview, false);
+      $status.textContent = `Pré-visualização pronta (${state.preview.length} linhas).`;
+    };
+
+    document.getElementById("btnSave").onclick = async () => {
+      if(!state.preview.length){ alert("Faça a pré-visualização antes de salvar."); return; }
+      $status.textContent = "Salvando no banco...";
+      const res = await fetch(API + "/api/reports/save", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ rows: state.preview })
+      });
+      const out = await res.json();
+      if(res.ok){ $status.textContent = "✅ " + out.message; }
+      else { $status.textContent = "Erro: " + (out.detail || "falha ao salvar"); }
+    };
+  }
+
+  // ===== Fluxo para níveis inferiores (ver/editar) =====
+  function bindEditor(){
+    const $status = document.getElementById("status2");
+
+    async function load(){
+      $status.textContent = "Carregando...";
+      const res = await fetch(API + "/api/reports/data");
+      const data = await res.json();
+      renderTable(data.rows || [], true);
+      $status.textContent = data.rows?.length ? `Carregado (${data.rows.length} linhas)` : "Vazio.";
+    }
+
+    document.getElementById("btnReload").onclick = load;
+
+    document.getElementById("btnCommit").onclick = async () => {
+      const rows = tableToRows();
+      if(!rows.length){ alert("Nada para salvar."); return; }
+      $status.textContent = "Enviando alterações...";
+      const res = await fetch(API + "/api/reports/data", {
+        method:"PUT",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ rows })
+      });
+      const out = await res.json();
+      if(res.ok){ $status.textContent = "✅ " + out.message; }
+      else { $status.textContent = "Erro: " + (out.detail || "falha ao atualizar"); }
+    };
+
+    // carga inicial
+    load();
+  }
+</script>
+</body>
+</html>
