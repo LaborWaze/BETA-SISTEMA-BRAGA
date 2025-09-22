@@ -30,7 +30,7 @@ engine = create_engine(DATABASE_URL)
 PERTINENTES = [
     "municipio",
     "cnes",
-    "nome_fantaia",
+    "nome_fantasia",
     "profissional_nome",
     "profissional_cns",
     "profissional_atende_sus",
@@ -39,7 +39,7 @@ PERTINENTES = [
     "carga_horaria_outros",
     "profissional_vinculo",
     "equipe_ine",
-    "TIPO EQUIPE",
+    "tipo_equipe",
     "equipe_subtipo",
     "equipe_nome",
     "equipe_area",
@@ -62,9 +62,19 @@ class RowsIn(BaseModel):
     rows: list[dict]
 
 def _normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    - Normaliza: minúsculas + underscore
+    - Resolve cabeçalhos legados (ex.: 'TIPO EQUIPE') e typos de CSV
+    """
+    # normalização básica
     df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
-    if "nome_fantaia" in df.columns:  # alguns CSVs vêm com typo
-        df = df.rename(columns={"nome_fantaia":"nome_fantasia"})
+
+    # aliases/typos comuns -> nome normalizado
+    ALIASES = {
+        "nome_fantaia": "nome_fantasia",   # typo recorrente
+        "tipo_equipe":  "tipo_equipe",     # garante chave normalizada
+    }
+    df = df.rename(columns={k: v for k, v in ALIASES.items() if k in df.columns})
     return df
 
 @app.post("/api/upload-csv")
