@@ -293,3 +293,172 @@ function attachToggleButtons(){
     window.location.href = "./index.html";
   });
 })();
+
+/* =========================
+   RELATÓRIOS (preview, salvar e listar)
+   ========================= */
+(function initReports(){
+  const $file     = document.getElementById("csvFile");
+  const $onlyPert = document.getElementById("onlyPert");
+  const $preview  = document.getElementById("previewBtn");
+  const $save     = document.getElementById("saveBtn");
+  const $wrap     = document.getElementById("tableWrap");
+  const $tbl      = document.getElementById("dataTable");
+  const $status   = document.getElementById("statusMsg");
+
+  const $pager    = document.getElementById("pager");
+  const $prev     = document.getElementById("prevPage");
+  const $next     = document.getElementById("nextPage");
+  const $pageInfo = document.getElementById("pageInfo");
+
+  if (!$file || !$preview || !$tbl) return; // não estamos na página de relatórios
+
+  // --- estado do preview para poder salvar depois
+  let previewColumns = [];
+  let previewRows    = [];
+
+  // --- estado dos dados salvos (paginação do backend)
+  let curPage = 1;
+  let pageSize = 50;
+  let total = 0;
+
+  // --- espelhamento (Admin <-> Gestor)
+  let lastVersion = 0;
+  let versionTimer = null;
+
+  function setStatus(msg){ $status.textContent = msg || ""; }
+  function clearTable(){ $tbl.innerHTML = ""; }
+
+  function renderTable(columns, rows){
+    if (!columns || columns.length === 0){
+      clearTable();
+      $tbl.innerHTML = `<thead><tr><th>Nenhuma coluna</th></tr></thead>`;
+      return;
+    }
+    const thead = `<thead><tr>${columns.map(c=>`<th>${c}</th>`).join("")}</tr></thead>`;
+    const body  = `<tbody>${
+      rows.map(r => `<tr>${
+        columns.map(c => `<td>${r[c] ?? ""}</td>`).join("")
+      }</tr>`).join("")
+    }</tbody>`;
+    $tbl.innerHTML = thead + body;
+  }
+
+  // ========== PREVIEW ==========
+  async function doPreview(){
+    if (!$file.files[0]){ setStatus("Escolha um arquivo CSV."); return; }
+    setStatus("Enviando e gerando pré-visualização…");
+    $save.disabled = true;
+    clearTable();
+
+    const fd = new FormData();
+    fd.append("file", $file.files[0]);
+    // você pode passar columns via JSON aqui se quiser customizar;
+    // vamos usar apenas o onlyPertinentes do backend:
+    const url = `/api/upload-csv?only_pertinentes=${$onlyPert.checked ? "true":"false"}`;
+
+    try{
+      const res = await fetch(url, { method: "POST", body: fd });
+      if (!res.ok){
+        const t = await res.text();
+        throw new Error(t || `Falha ${res.status}`);
+      }
+      const data = await res.json(); // {columns, rows, total}
+      previewColumns = data.columns || [];
+      previewRows    = data.rows || [];
+
+      renderTable(previewColumns, previewRows);
+      setStatus(`Pré-visualização de ${previewRows.length} linha(s) (total no arquivo: ${data.total}).`);
+      $save.disabled = previewRows.length === 0;
+
+      // ao pré-visualizar, escondemos paginação (é só preview cliente)
+      $pager.hidden = true;
+
+    }catch(err){
+      console.error(err);
+      setStatus("Erro ao pré-visualizar: " + (err.message || err));
+    }
+  }
+
+  // ========== SALVAR ==========
+  async function doSave(){
+    if (previewRows.length === 0){ setStatus("Nada para salvar."); return; }
+    setStatus("Salvando no banco…");
+    $save.disabled = true;
+
+    try{
+      const res = await fetch("/api/reports/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows: previewRows })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.detail || JSON.stringify(data));
+      setStatus("✅ " + (data.message || "Salvo."));
+
+      // após salvar, carrega do banco com paginação
+      curPage = 1;
+      await loadSaved(curPage);
+
+      // inicia/atualiza o polling de version (espelho)
+      startVersionPolling();
+
+    }catch(err){
+      console.error(err);
+      setStatus("Erro ao salvar: " + (err.message || err));
+    }finally{
+      $save.disabled = false;
+    }
+  }
+
+  // ========== LISTAR SALVO (PAGINADO) ==========
+  async function loadSaved(page){
+    setStatus("Carregando dados salvos…");
+    clearTable();
+    try{
+      const res = await fetch(`/api/reports/data?page=${page}&page_size=${pageSize}`);
+      const data = await res.json(); // {columns, rows, page, page_size, total, version}
+      renderTable(data.columns, data.rows);
+      total = data.total || 0;
+      curPage = data.page || 1;
+      lastVersion = data.version || 0;
+      setStatus(`Mostrando página ${curPage} de ${Math.max(1, Math.ceil(total / pageSize))} (total ${total})`);
+      // mostrar paginação se houver mais de 1 página
+      $pager.hidden = total <= pageSize;
+      $pageInfo.textContent = `Página ${curPage} / ${Math.max(1, Math.ceil(total / pageSize))}`;
+    }catch(err){
+      console.error(err);
+      setStatus("Erro ao carregar dados: " + (err.message || err));
+      $pager.hidden = true;
+    }
+  }
+
+  $prev?.addEventListener("click", () => { if (curPage > 1) loadSaved(--curPage); });
+  $next?.addEventListener("click", () => {
+    const last = Math.max(1, Math.ceil(total / pageSize));
+    if (curPage < last) loadSaved(++curPage);
+  });
+
+  // ========== ESPELHO (polling do version) ==========
+  function startVersionPolling(){
+    if (versionTimer) clearInterval(versionTimer);
+    versionTimer = setInterval(async () => {
+      try{
+        const res = await fetch(`/api/reports/data?page=1&page_size=1`);
+        const data = await res.json();
+        if ((data.version || 0) !== lastVersion){
+          lastVersion = data.version || 0;
+          // recarrega a página atual para refletir mudanças
+          await loadSaved(curPage);
+        }
+      }catch(e){ /* silencioso */ }
+    }, 5000); // a cada 5s — pode ajustar
+  }
+
+  // ========== BINDs ==========
+  $preview.addEventListener("click", doPreview);
+  $save.addEventListener("click", doSave);
+
+  // se quiser: ao entrar na página já mostrar o que está no banco
+  loadSaved(curPage).then(startVersionPolling);
+})();
