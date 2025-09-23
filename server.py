@@ -2,6 +2,7 @@
 import os
 import io
 import json
+import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
