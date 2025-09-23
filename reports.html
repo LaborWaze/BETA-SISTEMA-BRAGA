@@ -30,26 +30,34 @@
 </header>
 
 <main class="main">
-  <h2 class="title">Relatórios</h2>
+  <h2 class="page-title">Relatórios</h2>
+  
+  <div class="toolbar">
+    <input id="csvFile" type="file" accept=".csv" />
+    <label class="chk">
+      <input id="onlyPert" type="checkbox" checked />
+      Mostrar só colunas pertinentes
+    </label>
+    <button id="previewBtn" class="btn">Pré-visualizar</button>
+    <button id="saveBtn" class="btn primary" disabled>Salvar no banco</button>
+  </div>
+  
+  <div id="statusMsg" class="muted" style="margin:.5rem 0;"></div>
+  
+  <!-- preview / dados salvos -->
+  <div id="tableWrap" class="table-wrap">
+    <table id="dataTable" class="tbl">
+      <!-- cabeçalho/linhas renderizados via JS -->
+    </table>
+  </div>
+  
+  <!-- paginação (para dados salvos) -->
+  <div id="pager" class="pager" hidden>
+    <button id="prevPage" class="btn">◀</button>
+    <span id="pageInfo" class="muted"></span>
+    <button id="nextPage" class="btn">▶</button>
+  </div>
 
-  <!-- Barra Admin (upload/filtrar/salvar) -->
-  <section id="adminBar" class="toolbar hidden">
-    <input id="fileInput" type="file" accept=".csv" class="btn"/>
-    <span class="chip">Colunas “pertinentes” pré-selecionadas</span>
-    <button id="btnPreview" class="btn">Pré-visualizar</button>
-    <button id="btnSave" class="btn primary">Salvar no banco</button>
-    <span id="status" class="muted"></span>
-  </section>
-
-  <!-- Barra de edição para níveis inferiores -->
-  <section id="editBar" class="toolbar hidden">
-    <button id="btnReload" class="btn">Recarregar</button>
-    <button id="btnCommit" class="btn primary">Salvar alterações</button>
-    <span class="muted">Dica: clique numa célula para editar.</span>
-    <span id="status2" class="muted"></span>
-  </section>
-
-  <div class="table-wrap" id="tableWrap"></div>
 </main>
 
 <script src="./app.js"></script>
