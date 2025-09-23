@@ -608,3 +608,45 @@ body{
   .hero__logo{ height: 110px; }
   .btn, .btn-primary, .btn-ghost{ padding: 12px 14px; }
 }
+
+.table-wrap{
+  max-height: 60vh;        /* não ocupa toda a página */
+  overflow: auto;          /* rolagem vertical */
+  border: 1px solid #e6e6e6;
+  border-radius: 10px;
+  background: #fff;
+}
+.tbl{
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.tbl th, .tbl td{
+  padding: 10px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;     /* evita quebrar demais, mas… */
+}
+.tbl td{
+  white-space: normal;     /* …celulas podem quebrar em telas pequenas */
+  word-break: break-word;
+}
+.tbl thead th{
+  position: sticky;
+  top: 0;
+  background: #fafafa;
+  z-index: 1;
+  border-bottom: 1px solid #e6e6e6;
+}
+.pager{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: .5rem;
+}
+@media (max-width: 600px){
+  .tbl{ font-size: 13px; }
+  .toolbar{ display: grid; gap: .5rem; align-items: center; }
+  .table-wrap{ max-height: 55vh; }
+}
