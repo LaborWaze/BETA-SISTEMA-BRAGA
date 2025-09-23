@@ -1,32 +1,40 @@
 # server.py
 import os
-from fastapi.staticfiles import StaticFiles
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+import io
+import json
+from pathlib import Path
+from urllib.parse import urlparse
+
 import pandas as pd
-from sqlalchemy import create_engine
-import io, json
+import chardet
+
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from sqlalchemy import create_engine, text
 
 # ===== Config (DATABASE_URL) =====
-# Em produção (Render), use a variável DATABASE_URL.
-# Em desenvolvimento local, se quiser, ela cai no fallback para localhost.
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql+psycopg2://postgres:postgres@localhost:5432/cnes_dados"
 )
 
-# Corrige prefixo antigo e garante SSL no Render
+# Corrige prefixo antigo
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
 
-if "sslmode=" not in DATABASE_URL:
+# sslmode=require só para URL EXTERNA (no Render, a interna não precisa)
+host = (urlparse(DATABASE_URL).hostname or "").lower()
+is_internal = host.endswith(".internal") or "-internal" in host
+if "sslmode=" not in DATABASE_URL and not is_internal:
     sep = "&" if "?" in DATABASE_URL else "?"
     DATABASE_URL = f"{DATABASE_URL}{sep}sslmode=require"
 
 engine = create_engine(DATABASE_URL)
 
-
+# ===== Colunas “pertinentes” =====
 PERTINENTES = [
     "municipio",
     "cnes",
@@ -47,9 +55,10 @@ PERTINENTES = [
     "equipe_dt_desativacao",
     "equipe_dt_entrada",
     "equipe_dt_desligamento",
-    "natureza_juridica"
+    "natureza_juridica",
 ]
 
+# ===== FastAPI =====
 app = FastAPI(title="Relatórios API")
 
 app.add_middleware(
@@ -58,84 +67,181 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
+# ===== Utils =====
 class RowsIn(BaseModel):
     rows: list[dict]
 
-def _normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    - Normaliza: minúsculas + underscore
-    - Resolve cabeçalhos legados (ex.: 'TIPO EQUIPE') e typos de CSV
-    """
-    # normalização básica
-    df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
+ALIASES = {
+    "nome_fantaia": "nome_fantasia",   # typo comum
+    "tipo equipe": "tipo_equipe",      # cabeçalho com espaço
+}
 
-    # aliases/typos comuns -> nome normalizado
-    ALIASES = {
-        "nome_fantaia": "nome_fantasia",   # typo recorrente
-        "tipo_equipe":  "tipo_equipe",     # garante chave normalizada
-    }
+def _normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """minúsculas + underscore + corrige typos/aliases"""
+    df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
     df = df.rename(columns={k: v for k, v in ALIASES.items() if k in df.columns})
     return df
 
+def _read_csv_smart(file_bytes: bytes) -> pd.DataFrame:
+    """detecta encoding e tenta ; e , como separadores"""
+    try:
+        enc = chardet.detect(file_bytes).get("encoding") or "utf-8"
+    except Exception:
+        enc = "utf-8"
+
+    for sep in [";", ","]:
+        try:
+            df = pd.read_csv(
+                io.BytesIO(file_bytes),
+                sep=sep,
+                encoding=enc,
+                low_memory=False,
+                dtype=str
+            )
+            if df.shape[1] > 1:
+                return df
+        except Exception:
+            pass
+
+    # fallback do pandas
+    return pd.read_csv(io.BytesIO(file_bytes), encoding=enc, low_memory=False, dtype=str)
+
+def _touch_version():
+    """Atualiza/insere um 'version' para clientes detectarem mudanças."""
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS relatorios_meta (id int primary key, version bigint)
+        """))
+        conn.execute(text("""
+            INSERT INTO relatorios_meta (id, version)
+            VALUES (1, EXTRACT(EPOCH FROM NOW())::bigint)
+            ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version
+        """))
+
+def _get_version() -> int:
+    with engine.begin() as conn:
+        v = conn.execute(
+            text("SELECT COALESCE(version,0) FROM relatorios_meta WHERE id=1")
+        ).scalar()
+    return int(v or 0)
+
+# ===== Rotas =====
+
 @app.post("/api/upload-csv")
-async def upload_csv(file: UploadFile = File(...), columns: str | None = None):
+async def upload_csv(
+    file: UploadFile = File(...),
+    columns: str | None = None,
+    only_pertinentes: bool = True,
+):
+    """
+    Pré-visualização:
+    - aceita CSV (auto encoding e separador)
+    - normaliza colunas
+    - filtra pertinentes (opcional)
+    - devolve até 100 linhas + total
+    """
     try:
         raw = await file.read()
-        df = pd.read_csv(io.BytesIO(raw), encoding="latin1")
+        df = _read_csv_smart(raw)
         df = _normalize_cols(df)
-        cols = json.loads(columns) if columns else PERTINENTES
-        cols = [c for c in cols if c in df.columns]
+
+        # define colunas
+        if columns:
+            cols_req = json.loads(columns)
+            cols = [c for c in cols_req if c in df.columns]
+        else:
+            cols = [c for c in (PERTINENTES if only_pertinentes else list(df.columns)) if c in df.columns]
+
         if not cols:
-            raise HTTPException(400, "Nenhuma coluna encontrada no CSV.")
+            raise HTTPException(400, "Nenhuma coluna reconhecida no CSV.")
+
         df = df[cols]
-        # pequena limpeza
+
+        # limpeza de caracteres nulos
         for c in df.select_dtypes(include="object").columns:
             df[c] = df[c].astype(str).str.replace("\x00", "", regex=False)
-        preview = df.head(500).to_dict(orient="records")
-        return {"columns": cols, "rows": preview}
+
+        total = len(df)
+        preview = df.head(100).to_dict(orient="records")
+        return {"columns": cols, "rows": preview, "total": int(total)}
     except Exception as e:
         raise HTTPException(400, f"Erro ao processar CSV: {e}")
 
 @app.post("/api/reports/save")
 async def save_rows(payload: RowsIn):
+    """
+    Salva as linhas (JSON) na tabela dados_filtrados (replace) e
+    atualiza a 'version' para clientes espelharem mudanças.
+    """
     try:
         df = pd.DataFrame(payload.rows)
         if df.empty:
             raise HTTPException(400, "Sem linhas para salvar.")
         df = _normalize_cols(df)
-        # garante apenas colunas “pertinentes”
         cols = [c for c in PERTINENTES if c in df.columns]
+        if not cols:
+            raise HTTPException(400, "Nenhuma coluna pertinente encontrada.")
         df = df[cols]
-        # salva (substitui) em tabela dedicada
         df.to_sql("dados_filtrados", engine, if_exists="replace", index=False)
+        _touch_version()
         return {"message": f"Salvo {len(df)} linha(s) em dados_filtrados."}
     except Exception as e:
         raise HTTPException(500, f"Erro ao salvar: {e}")
 
 @app.get("/api/reports/data")
-async def get_data():
+async def get_data(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+):
+    """
+    Dados salvos com paginação e versão (para espelho Admin↔Gestor).
+    """
     try:
-        df = pd.read_sql("SELECT * FROM dados_filtrados", engine)
-        rows = df.to_dict(orient="records")
-        return {"rows": rows}
-    except Exception as e:
-        # tabela pode não existir ainda
-        return {"rows": []}
+        with engine.begin() as conn:
+            total = conn.execute(text("SELECT COUNT(*) FROM dados_filtrados")).scalar() or 0
+            if total == 0:
+                return {"columns": [], "rows": [], "page": page, "page_size": page_size, "total": 0, "version": _get_version()}
+
+            offset = (page - 1) * page_size
+            rows = conn.execute(text(f"""
+                SELECT * FROM dados_filtrados
+                ORDER BY 1
+                OFFSET :off LIMIT :lim
+            """), {"off": offset, "lim": page_size}).mappings().all()
+
+        columns = list(rows[0].keys()) if rows else []
+        return {
+            "columns": columns,
+            "rows": [dict(r) for r in rows],
+            "page": page,
+            "page_size": page_size,
+            "total": int(total),
+            "version": _get_version(),
+        }
+    except Exception:
+        # tabela ainda inexistente
+        return {"columns": [], "rows": [], "page": page, "page_size": page_size, "total": 0, "version": _get_version()}
 
 @app.put("/api/reports/data")
 async def replace_data(payload: RowsIn):
+    """
+    Substitui completamente a tabela dados_filtrados e atualiza version.
+    """
     try:
         df = pd.DataFrame(payload.rows)
         if df.empty:
             raise HTTPException(400, "Sem linhas para salvar.")
         df = _normalize_cols(df)
         cols = [c for c in PERTINENTES if c in df.columns]
+        if not cols:
+            raise HTTPException(400, "Nenhuma coluna pertinente encontrada.")
         df = df[cols]
         df.to_sql("dados_filtrados", engine, if_exists="replace", index=False)
+        _touch_version()
         return {"message": f"Atualizado com {len(df)} linha(s)."}
     except Exception as e:
         raise HTTPException(500, f"Erro ao atualizar: {e}")
-    
-    # Servir os arquivos estáticos desta mesma pasta (FRONTEND)
-# html=True faz com que "/" entregue o index.html automaticamente
+
+# ===== Static (FRONTEND) =====
+# html=True entrega index.html em "/"
 app.mount("/", StaticFiles(directory=".", html=True), name="static")
