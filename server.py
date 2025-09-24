@@ -236,38 +236,25 @@ async def get_data(
 
 @app.patch("/api/reports/row")
 async def patch_row(payload: PatchIn):
-    """
-    Atualiza campos específicos de uma linha identificada por __id.
-    Somente colunas do conjunto PERTINENTES são aceitas.
-    """
     try:
-        if not payload.id:
-            raise HTTPException(400, "ID ausente.")
-
-        # normaliza chaves e filtra apenas colunas permitidas
-        changes = {str(k).strip().lower(): v for k, v in (payload.changes or {}).items()}
-        allowed_cols = [c for c in changes.keys() if c in PERTINENTES]
-        if not allowed_cols:
-            raise HTTPException(400, "Nada para atualizar.")
-
-        # monta UPDATE dinâmico
-        sets = ", ".join(f"{c} = :{c}" for c in allowed_cols)
-        params = {c: changes[c] for c in allowed_cols}
-        params["id"] = payload.id
-
-        with engine.begin() as conn:
-            result = conn.execute(
-                text(f"UPDATE dados_filtrados SET {sets} WHERE __id = :id"),
-                params
-            )
-            if result.rowcount == 0:
-                raise HTTPException(404, "Linha não encontrada.")
-
-        return {"ok": True}
+      if not payload.id:
+          raise HTTPException(400, "ID ausente.")
+      changes = {str(k).strip().lower(): v for k,v in (payload.changes or {}).items()}
+      allowed = [c for c in changes if c in PERTINENTES]
+      if not allowed:
+          raise HTTPException(400, "Nada para atualizar.")
+      sets = ", ".join(f"{c} = :{c}" for c in allowed)
+      params = {c: changes[c] for c in allowed}
+      params["id"] = payload.id
+      with engine.begin() as conn:
+          res = conn.execute(text(f"UPDATE dados_filtrados SET {sets} WHERE __id = :id"), params)
+          if res.rowcount == 0:
+              raise HTTPException(404, "Linha não encontrada.")
+      return {"ok": True}
     except HTTPException:
-        raise
+      raise
     except Exception as e:
-        raise HTTPException(500, f"Erro ao atualizar: {e}")
+      raise HTTPException(500, f"Erro ao atualizar: {e}")
 
 @app.put("/api/reports/data")
 async def replace_data(payload: RowsIn):
