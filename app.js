@@ -20,6 +20,31 @@ const KEY = {
   CREDS:     "app.creds"          // { [username]: "novaSenha" }
 };
 
+// ===== Header básico em todas as páginas =====
+(function initHeader(){
+  const sessRaw = sessionStorage.getItem("app.session");
+  let sess = null;
+  try { sess = JSON.parse(sessRaw || "null"); } catch { /* noop */ }
+
+  // Preenche nome/papel se existir no HTML
+  const $name = document.getElementById("userName");
+  const $role = document.getElementById("userRole");
+  if (sess && $name) $name.textContent = sess.name || "";
+  if (sess && $role) {
+    $role.textContent = sess.role || "";
+    $role.classList.add("role-" + (sess.role || "user"));
+  }
+
+  // Logout global
+  const $logout = document.getElementById("logoutBtn");
+  if ($logout) {
+    $logout.addEventListener("click", () => {
+      sessionStorage.removeItem("app.session");
+      window.location.href = "./index.html";
+    });
+  }
+})();
+
 function now(){ return Date.now(); }
 function mins(n){ return n * 60 * 1000; }
 function normalizeUsername(v){ return String(v || "").trim().toLowerCase(); }
