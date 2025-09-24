@@ -71,6 +71,11 @@ app.add_middleware(
 # ===== Utils =====
 class RowsIn(BaseModel):
     rows: list[dict]
+    
+class PatchIn(BaseModel):
+    id: str
+    changes: dict
+    
 
 ALIASES = {
     "nome_fantaia": "nome_fantasia",   # typo comum
@@ -81,6 +86,14 @@ def _normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
     """minúsculas + underscore + corrige typos/aliases"""
     df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
     df = df.rename(columns={k: v for k, v in ALIASES.items() if k in df.columns})
+    return df
+
+def _ensure_row_ids(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Garante a existencia da coluna tecnica __id (uuid em texto).
+    """
+    if "__id" not in df.columns:
+        df["__id"] = [str(uuid.uuid4()) for _ in range(len(df))]
     return df
 
 def _read_csv_smart(file_bytes: bytes) -> pd.DataFrame:
@@ -180,11 +193,9 @@ async def save_rows(payload: RowsIn):
             raise HTTPException(400, "Sem linhas para salvar.")
         df = _normalize_cols(df)
         cols = [c for c in PERTINENTES if c in df.columns]
-        if not cols:
-            raise HTTPException(400, "Nenhuma coluna pertinente encontrada.")
         df = df[cols]
+        df = _ensure_row_ids(df)
         df.to_sql("dados_filtrados", engine, if_exists="replace", index=False)
-        _touch_version()
         return {"message": f"Salvo {len(df)} linha(s) em dados_filtrados."}
     except Exception as e:
         raise HTTPException(500, f"Erro ao salvar: {e}")
@@ -223,6 +234,41 @@ async def get_data(
         # tabela ainda inexistente
         return {"columns": [], "rows": [], "page": page, "page_size": page_size, "total": 0, "version": _get_version()}
 
+@app.patch("/api/reports/row")
+async def patch_row(payload: PatchIn):
+    """
+    Atualiza campos específicos de uma linha identificada por __id.
+    Somente colunas do conjunto PERTINENTES são aceitas.
+    """
+    try:
+        if not payload.id:
+            raise HTTPException(400, "ID ausente.")
+
+        # normaliza chaves e filtra apenas colunas permitidas
+        changes = {str(k).strip().lower(): v for k, v in (payload.changes or {}).items()}
+        allowed_cols = [c for c in changes.keys() if c in PERTINENTES]
+        if not allowed_cols:
+            raise HTTPException(400, "Nada para atualizar.")
+
+        # monta UPDATE dinâmico
+        sets = ", ".join(f"{c} = :{c}" for c in allowed_cols)
+        params = {c: changes[c] for c in allowed_cols}
+        params["id"] = payload.id
+
+        with engine.begin() as conn:
+            result = conn.execute(
+                text(f"UPDATE dados_filtrados SET {sets} WHERE __id = :id"),
+                params
+            )
+            if result.rowcount == 0:
+                raise HTTPException(404, "Linha não encontrada.")
+
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Erro ao atualizar: {e}")
+
 @app.put("/api/reports/data")
 async def replace_data(payload: RowsIn):
     """
@@ -234,11 +280,9 @@ async def replace_data(payload: RowsIn):
             raise HTTPException(400, "Sem linhas para salvar.")
         df = _normalize_cols(df)
         cols = [c for c in PERTINENTES if c in df.columns]
-        if not cols:
-            raise HTTPException(400, "Nenhuma coluna pertinente encontrada.")
         df = df[cols]
+        df = _ensure_row_ids(df)
         df.to_sql("dados_filtrados", engine, if_exists="replace", index=False)
-        _touch_version()
         return {"message": f"Atualizado com {len(df)} linha(s)."}
     except Exception as e:
         raise HTTPException(500, f"Erro ao atualizar: {e}")
