@@ -341,10 +341,25 @@ function attachToggleButtons(){
   // Permissão de edição (admin/gestor podem editar)
   let canEdit = false;
   try {
-    const sess = JSON.parse(sessionStorage.getItem("app.session") || "null");
-    canEdit = !!sess && (sess.role === "admin" || sess.role === "gestor");
-  } catch {}
+    const sessRaw = sessionStorage.getItem("app.session");
+    const sess = sessRaw ? JSON.parse(sessRaw) : null;
+    const role = String(sess?.role || "").toLowerCase().trim();
+    canEdit = role == "admin" || role === "gestor";
+  } catch (e) {
+    console.warn("Sessão invalida para relatorios:", e);
+  }
 
+  // Fallback adicional: tenta inferir pelo badge do header
+  if (!canEdit) {
+    const badge = document.getElementById("userRole");
+    if (badge && /role-(admin|gestor)/i.test(badge.className)) {
+      canEdit = true;
+      console.info("canEdit habilitado via badge de usuario.");
+    }
+  }
+ 
+console.log("canEdit =", canEdit);
+  
   // Estado
   let previewColumns = [];
   let previewRows    = [];
