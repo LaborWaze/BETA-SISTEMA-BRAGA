@@ -196,6 +196,7 @@ async def save_rows(payload: RowsIn):
         df = df[cols]
         df = _ensure_row_ids(df)
         df.to_sql("dados_filtrados", engine, if_exists="replace", index=False)
+        _touch_version()
         return {"message": f"Salvo {len(df)} linha(s) em dados_filtrados."}
     except Exception as e:
         raise HTTPException(500, f"Erro ao salvar: {e}")
@@ -215,9 +216,10 @@ async def get_data(
                 return {"columns": [], "rows": [], "page": page, "page_size": page_size, "total": 0, "version": _get_version()}
 
             offset = (page - 1) * page_size
+            order_sql = "ORDER BY __id"
             rows = conn.execute(text(f"""
                 SELECT * FROM dados_filtrados
-                ORDER BY 1
+                {order_sql}
                 OFFSET :off LIMIT :lim
             """), {"off": offset, "lim": page_size}).mappings().all()
 
@@ -250,6 +252,7 @@ async def patch_row(payload: PatchIn):
           res = conn.execute(text(f"UPDATE dados_filtrados SET {sets} WHERE __id = :id"), params)
           if res.rowcount == 0:
               raise HTTPException(404, "Linha não encontrada.")
+      _touch_version()        
       return {"ok": True}
     except HTTPException:
       raise
@@ -270,6 +273,7 @@ async def replace_data(payload: RowsIn):
         df = df[cols]
         df = _ensure_row_ids(df)
         df.to_sql("dados_filtrados", engine, if_exists="replace", index=False)
+        _touch_version()
         return {"message": f"Atualizado com {len(df)} linha(s)."}
     except Exception as e:
         raise HTTPException(500, f"Erro ao atualizar: {e}")
