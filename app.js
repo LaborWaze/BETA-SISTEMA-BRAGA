@@ -320,170 +320,211 @@ function attachToggleButtons(){
 })();
 
 /* =========================
-   RELATÓRIOS (preview, salvar e listar)
+   RELATÓRIOS (preview, salvar, carregar e edição inline)
    ========================= */
 (function initReports(){
-  const $file     = document.getElementById("csvFile");
-  const $onlyPert = document.getElementById("onlyPert");
-  const $preview  = document.getElementById("previewBtn");
-  const $save     = document.getElementById("saveBtn");
-  const $wrap     = document.getElementById("tableWrap");
-  const $tbl      = document.getElementById("dataTable");
-  const $status   = document.getElementById("statusMsg");
+  // Elementos da reports.html
+  const $file       = document.getElementById("csvFile");
+  const $onlyPert   = document.getElementById("onlyPert");
+  const $btnPreview = document.getElementById("previewBtn");
+  const $btnSave    = document.getElementById("saveBtn");
+  const $status     = document.getElementById("statusMsg");
+  const $mount      = document.getElementById("reportsMount");
+  const $pager      = document.getElementById("pager");       // opcional
+  const $prev       = document.getElementById("prevPage");     // opcional
+  const $next       = document.getElementById("nextPage");     // opcional
+  const $pageInfo   = document.getElementById("pageInfo");     // opcional
 
-  const $pager    = document.getElementById("pager");
-  const $prev     = document.getElementById("prevPage");
-  const $next     = document.getElementById("nextPage");
-  const $pageInfo = document.getElementById("pageInfo");
+  // Se não estamos na página de relatórios, sai
+  if (!$mount) return;
 
-  if (!$file || !$preview || !$tbl) return; // não estamos na página de relatórios
+  // Permissão de edição (admin/gestor podem editar)
+  let canEdit = false;
+  try {
+    const sess = JSON.parse(sessionStorage.getItem("app.session") || "null");
+    canEdit = !!sess && (sess.role === "admin" || sess.role === "gestor");
+  } catch {}
 
-  // --- estado do preview para poder salvar depois
+  // Estado
   let previewColumns = [];
   let previewRows    = [];
+  let curPage = 1, pageSize = 50, total = 0;
+  let lastVersion = 0, versionTimer = null;
 
-  // --- estado dos dados salvos (paginação do backend)
-  let curPage = 1;
-  let pageSize = 50;
-  let total = 0;
+  // Helpers UI
+  const toastEl = document.getElementById("toast");
+  function setStatus(msg){ if ($status) $status.textContent = msg || ""; }
+  function toast(msg, type="info"){
+    if (!toastEl) return;
+    toastEl.textContent = msg;
+    toastEl.className = `toast ${type}`;
+    toastEl.style.display = "block";
+    setTimeout(() => toastEl.style.display = "none", 1600);
+  }
 
-  // --- espelhamento (Admin <-> Gestor)
-  let lastVersion = 0;
-  let versionTimer = null;
-
-  function setStatus(msg){ $status.textContent = msg || ""; }
-  function clearTable(){ $tbl.innerHTML = ""; }
-
+  // Renderização da tabela (usa reportsMount)
   function renderTable(columns, rows){
-    if (!columns || columns.length === 0){
-      clearTable();
-      $tbl.innerHTML = `<thead><tr><th>Nenhuma coluna</th></tr></thead>`;
+    if (!columns?.length){
+      $mount.innerHTML = `<p class="muted" style="padding:16px">Sem dados.</p>`;
       return;
     }
-    const thead = `<thead><tr>${columns.map(c=>`<th>${c}</th>`).join("")}</tr></thead>`;
-    const body  = `<tbody>${
-      rows.map(r => `<tr>${
-        columns.map(c => `<td>${r[c] ?? ""}</td>`).join("")
-      }</tr>`).join("")
+    const thead = `<thead><tr>${canEdit ? `<th class="sticky">#</th>` : ""}${columns.map(c=>`<th>${c}</th>`).join("")}</tr></thead>`;
+    const tbody = `<tbody>${
+      rows.map((r, i) => `
+        <tr data-rowid="${r.__id || ""}">
+          ${canEdit ? `<td class="sticky muted">${(i+1) + ((curPage-1)*pageSize)}</td>` : ""}
+          ${columns.map(c => {
+            const val = r[c] ?? "";
+            const editable = (canEdit && c !== "__id") ? `contenteditable="true" class="editable" data-col="${c}"` : "";
+            return `<td ${editable}>${escapeHtml(String(val))}</td>`;
+          }).join("")}
+        </tr>`
+      ).join("")
     }</tbody>`;
-    $tbl.innerHTML = thead + body;
+    $mount.innerHTML = `<div class="table-wrap"><table class="tbl reports">${thead}${tbody}</table></div>`;
+    if (canEdit) attachInlineHandlers();
   }
 
-  // ========== PREVIEW ==========
-  async function doPreview(){
-    if (!$file.files[0]){ setStatus("Escolha um arquivo CSV."); return; }
-    setStatus("Enviando e gerando pré-visualização…");
-    $save.disabled = true;
-    clearTable();
+  function escapeHtml(s){ return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
+  // Edição inline (autosave no blur/Enter, rollback em erro)
+  function attachInlineHandlers(){
+    $mount.querySelectorAll("td.editable").forEach(td => {
+      let original = td.textContent;
+      const save = async () => {
+        const tr = td.closest("tr");
+        const id = tr?.getAttribute("data-rowid");
+        const col = td.getAttribute("data-col");
+        if (!id || !col) return;
+        const newVal = td.textContent;
+        if (newVal === original) return;
+
+        td.classList.add("cell-saving");
+        try{
+          const res = await fetch("/api/reports/row", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id, changes: { [col]: newVal } })
+          });
+          if (!res.ok) throw new Error((await res.text()) || "Falha ao salvar");
+          original = newVal;
+          td.classList.remove("cell-saving");
+          td.classList.add("cell-ok");
+          setTimeout(()=>td.classList.remove("cell-ok"), 600);
+        }catch(e){
+          td.classList.remove("cell-saving");
+          td.classList.add("cell-error");
+          td.textContent = original;             // rollback
+          setTimeout(()=>td.classList.remove("cell-error"), 900);
+          toast("Erro ao salvar: " + e.message, "error");
+        }
+      };
+
+      td.addEventListener("focus", () => { original = td.textContent; });
+      td.addEventListener("blur", save);
+      td.addEventListener("keydown", (e) => {
+        if (e.key === "Enter"){ e.preventDefault(); td.blur(); }
+        if (e.key === "Escape"){ td.textContent = original; td.blur(); }
+      });
+      td.addEventListener("dblclick", () => {
+        const r = document.createRange(); r.selectNodeContents(td);
+        const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      });
+    });
+  }
+
+  // PREVIEW (upload → preview leve)
+  async function doPreview(){
+    if (!$file?.files?.[0]) { setStatus("Escolha um arquivo CSV."); return; }
+    setStatus("Gerando pré-visualização…");
+    $btnSave.disabled = true;
     const fd = new FormData();
     fd.append("file", $file.files[0]);
-    // você pode passar columns via JSON aqui se quiser customizar;
-    // vamos usar apenas o onlyPertinentes do backend:
-    const url = `/api/upload-csv?only_pertinentes=${$onlyPert.checked ? "true":"false"}`;
-
+    const url = `/api/upload-csv?only_pertinentes=${$onlyPert?.checked ? "true" : "false"}`;
     try{
-      const res = await fetch(url, { method: "POST", body: fd });
-      if (!res.ok){
-        const t = await res.text();
-        throw new Error(t || `Falha ${res.status}`);
-      }
-      const data = await res.json(); // {columns, rows, total}
+      const res = await fetch(url, { method:"POST", body: fd });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();   // {columns, rows, total}
       previewColumns = data.columns || [];
       previewRows    = data.rows || [];
-
       renderTable(previewColumns, previewRows);
-      setStatus(`Pré-visualização de ${previewRows.length} linha(s) (total no arquivo: ${data.total}).`);
-      $save.disabled = previewRows.length === 0;
-
-      // ao pré-visualizar, escondemos paginação (é só preview cliente)
-      $pager.hidden = true;
-
-    }catch(err){
-      console.error(err);
-      setStatus("Erro ao pré-visualizar: " + (err.message || err));
-    }
+      setStatus(`Pré-visualização: ${previewRows.length} de ${data.total} linha(s).`);
+      $btnSave.disabled = previewRows.length === 0;
+      if ($pager) $pager.hidden = true;
+    }catch(e){ setStatus("Erro ao pré-visualizar: " + e.message); }
   }
 
-  // ========== SALVAR ==========
+  // SALVAR (usa o preview mostrado)
   async function doSave(){
-    if (previewRows.length === 0){ setStatus("Nada para salvar."); return; }
-    setStatus("Salvando no banco…");
-    $save.disabled = true;
-
+    if (!previewRows.length) { setStatus("Nada para salvar."); return; }
+    setStatus("Salvando no banco…"); $btnSave.disabled = true;
     try{
       const res = await fetch("/api/reports/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
         body: JSON.stringify({ rows: previewRows })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.detail || JSON.stringify(data));
-      setStatus("✅ " + (data.message || "Salvo."));
-
-      // após salvar, carrega do banco com paginação
+      const out = await res.json();
+      if (!res.ok) throw new Error(out?.detail || JSON.stringify(out));
+      setStatus("✅ " + (out.message || "Salvo."));
+      // Após salvar, recarrega os dados do banco (com __id) e liga espelho
       curPage = 1;
       await loadSaved(curPage);
-
-      // inicia/atualiza o polling de version (espelho)
       startVersionPolling();
-
-    }catch(err){
-      console.error(err);
-      setStatus("Erro ao salvar: " + (err.message || err));
+    }catch(e){
+      setStatus("Erro ao salvar: " + e.message);
     }finally{
-      $save.disabled = false;
+      $btnSave.disabled = false;
     }
   }
 
-  // ========== LISTAR SALVO (PAGINADO) ==========
+  // CARREGAR SALVO (paginação simples)
   async function loadSaved(page){
-    setStatus("Carregando dados salvos…");
-    clearTable();
     try{
       const res = await fetch(`/api/reports/data?page=${page}&page_size=${pageSize}`);
-      const data = await res.json(); // {columns, rows, page, page_size, total, version}
-      renderTable(data.columns, data.rows);
-      total = data.total || 0;
-      curPage = data.page || 1;
+      const data = await res.json(); // {columns, rows, total, page, version}
+      total   = data.total || 0;
+      curPage = data.page  || 1;
       lastVersion = data.version || 0;
-      setStatus(`Mostrando página ${curPage} de ${Math.max(1, Math.ceil(total / pageSize))} (total ${total})`);
-      // mostrar paginação se houver mais de 1 página
-      $pager.hidden = total <= pageSize;
-      $pageInfo.textContent = `Página ${curPage} / ${Math.max(1, Math.ceil(total / pageSize))}`;
-    }catch(err){
-      console.error(err);
-      setStatus("Erro ao carregar dados: " + (err.message || err));
-      $pager.hidden = true;
+
+      const cols = (data.columns || []).filter(c => c !== "__id");
+      renderTable(cols, data.rows || []);
+      setStatus(`Mostrando página ${curPage} de ${Math.max(1, Math.ceil(total/pageSize))} (total ${total})`);
+      if ($pager){
+        $pager.hidden = total <= pageSize;
+        if ($pageInfo) $pageInfo.textContent = `Página ${curPage} / ${Math.max(1, Math.ceil(total/pageSize))}`;
+      }
+    }catch(e){
+      setStatus("Erro ao carregar dados: " + e.message);
+      if ($pager) $pager.hidden = true;
     }
   }
 
+  // ESPELHO (Admin/Gestor) via versão
+  function startVersionPolling(){
+    if (versionTimer) clearInterval(versionTimer);
+    versionTimer = setInterval(async () => {
+      try{
+        const r = await fetch(`/api/reports/data?page=1&page_size=1`);
+        const d = await r.json();
+        if ((d.version || 0) !== lastVersion){
+          lastVersion = d.version || 0;
+          await loadSaved(curPage);
+        }
+      }catch(_){}
+    }, 5000);
+  }
+
+  // Bind de botões
+  $btnPreview?.addEventListener("click", doPreview);
+  $btnSave?.addEventListener("click", doSave);
   $prev?.addEventListener("click", () => { if (curPage > 1) loadSaved(--curPage); });
   $next?.addEventListener("click", () => {
     const last = Math.max(1, Math.ceil(total / pageSize));
     if (curPage < last) loadSaved(++curPage);
   });
 
-  // ========== ESPELHO (polling do version) ==========
-  function startVersionPolling(){
-    if (versionTimer) clearInterval(versionTimer);
-    versionTimer = setInterval(async () => {
-      try{
-        const res = await fetch(`/api/reports/data?page=1&page_size=1`);
-        const data = await res.json();
-        if ((data.version || 0) !== lastVersion){
-          lastVersion = data.version || 0;
-          // recarrega a página atual para refletir mudanças
-          await loadSaved(curPage);
-        }
-      }catch(e){ /* silencioso */ }
-    }, 5000); // a cada 5s — pode ajustar
-  }
-
-  // ========== BINDs ==========
-  $preview.addEventListener("click", doPreview);
-  $save.addEventListener("click", doSave);
-
-  // se quiser: ao entrar na página já mostrar o que está no banco
+  // Carga inicial: mostra o que está no banco (se houver)
   loadSaved(curPage).then(startVersionPolling);
 })();
+
