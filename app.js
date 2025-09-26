@@ -323,86 +323,80 @@ function attachToggleButtons(){
    RELATÓRIOS (preview, salvar, carregar e edição inline)
    ========================= */
 (function initReports(){
-  // Elementos da reports.html
+  // --- elementos da reports.html
   const $file       = document.getElementById("csvFile");
   const $onlyPert   = document.getElementById("onlyPert");
   const $btnPreview = document.getElementById("previewBtn");
   const $btnSave    = document.getElementById("saveBtn");
   const $status     = document.getElementById("statusMsg");
-  const $mount      = document.getElementById("reportsMount");
-  const $pager      = document.getElementById("pager");       // opcional
-  const $prev       = document.getElementById("prevPage");     // opcional
-  const $next       = document.getElementById("nextPage");     // opcional
-  const $pageInfo   = document.getElementById("pageInfo");     // opcional
 
-  // Se não estamos na página de relatórios, sai
+  // usamos o container que EXISTE no seu HTML
+  const $mount      = document.getElementById("tableWrap");
+
+  // paginação (opcional)
+  const $pager      = document.getElementById("pager");
+  const $prev       = document.getElementById("prevPage");
+  const $next       = document.getElementById("nextPage");
+  const $pageInfo   = document.getElementById("pageInfo");
+
+  // se não estamos na página, sai
   if (!$mount) return;
 
-  // Permissão de edição (admin/gestor podem editar)
+  // header: nome/role + Sair
+  try{
+    const sess = JSON.parse(sessionStorage.getItem("app.session") || "null");
+    if (!sess) { location.href = "./index.html"; return; }
+    const $name = document.getElementById("userName");
+    const $role = document.getElementById("userRole");
+    if ($name) $name.textContent = sess.name || "";
+    if ($role) { $role.textContent = sess.role || ""; $role.classList.add("role-" + String(sess.role||"").toLowerCase()); }
+  }catch{}
+  const $logout = document.getElementById("logoutBtn");
+  if ($logout) $logout.onclick = () => { sessionStorage.removeItem("app.session"); location.href = "./index.html"; };
+
+  // quem pode editar? (admin e gestor)
   let canEdit = false;
   try {
-    const sessRaw = sessionStorage.getItem("app.session");
-    const sess = sessRaw ? JSON.parse(sessRaw) : null;
+    const sess = JSON.parse(sessionStorage.getItem("app.session") || "null");
     const role = String(sess?.role || "").toLowerCase().trim();
-    canEdit = role == "admin" || role === "gestor";
-  } catch (e) {
-    console.warn("Sessão invalida para relatorios:", e);
-  }
-
-  // Fallback adicional: tenta inferir pelo badge do header
-  if (!canEdit) {
+    canEdit = role === "admin" || role === "gestor";
+  } catch {}
+  if (!canEdit) { // fallback via badge
     const badge = document.getElementById("userRole");
-    if (badge && /role-(admin|gestor)/i.test(badge.className)) {
-      canEdit = true;
-      console.info("canEdit habilitado via badge de usuario.");
-    }
+    if (badge && /role-(admin|gestor)/i.test(badge.className)) canEdit = true;
   }
- 
-console.log("canEdit =", canEdit);
-  
-  // Estado
-  let previewColumns = [];
-  let previewRows    = [];
-  let curPage = 1, pageSize = 50, total = 0;
-  let lastVersion = 0, versionTimer = null;
+  console.log("canEdit =", canEdit);
 
-  // Helpers UI
-  const toastEl = document.getElementById("toast");
+  // estado
+  let previewRows = [];
+  let curPage = 1, pageSize = 50, total = 0, lastVersion = 0, versionTimer = null;
+
   function setStatus(msg){ if ($status) $status.textContent = msg || ""; }
-  function toast(msg, type="info"){
-    if (!toastEl) return;
-    toastEl.textContent = msg;
-    toastEl.className = `toast ${type}`;
-    toastEl.style.display = "block";
-    setTimeout(() => toastEl.style.display = "none", 1600);
-  }
+  function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
-  // Renderização da tabela (usa reportsMount)
+  // renderização
   function renderTable(columns, rows){
-    if (!columns?.length){
-      $mount.innerHTML = `<p class="muted" style="padding:16px">Sem dados.</p>`;
+    if (!columns?.length || !rows?.length){
+      $mount.innerHTML = `<div class="muted" style="padding:16px">Sem dados.</div>`;
       return;
     }
-    const thead = `<thead><tr>${canEdit ? `<th class="sticky">#</th>` : ""}${columns.map(c=>`<th>${c}</th>`).join("")}</tr></thead>`;
+    const thead = `<thead><tr>${canEdit ? `<th style="width:48px;">#</th>` : ""}${columns.map(c=>`<th>${c}</th>`).join("")}</tr></thead>`;
     const tbody = `<tbody>${
       rows.map((r, i) => `
-        <tr data-rowid="${r.__id || ""}">
-          ${canEdit ? `<td class="sticky muted">${(i+1) + ((curPage-1)*pageSize)}</td>` : ""}
+        <tr data-rowid="${r.__id ?? ""}">
+          ${canEdit ? `<td class="muted">${(i+1) + ((curPage-1)*pageSize)}</td>` : ""}
           ${columns.map(c => {
-            const val = r[c] ?? "";
+            const v = r[c] ?? "";
             const editable = (canEdit && c !== "__id") ? `contenteditable="true" class="editable" data-col="${c}"` : "";
-            return `<td ${editable}>${escapeHtml(String(val))}</td>`;
+            return `<td ${editable}>${escapeHtml(v)}</td>`;
           }).join("")}
         </tr>`
       ).join("")
     }</tbody>`;
-    $mount.innerHTML = `<div class="table-wrap"><table class="tbl reports">${thead}${tbody}</table></div>`;
+    $mount.innerHTML = `<table class="tbl">${thead}${tbody}</table>`;
     if (canEdit) attachInlineHandlers();
   }
 
-  function escapeHtml(s){ return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-
-  // Edição inline (autosave no blur/Enter, rollback em erro)
   function attachInlineHandlers(){
     $mount.querySelectorAll("td.editable").forEach(td => {
       let original = td.textContent;
@@ -410,7 +404,7 @@ console.log("canEdit =", canEdit);
         const tr = td.closest("tr");
         const id = tr?.getAttribute("data-rowid");
         const col = td.getAttribute("data-col");
-        if (!id || !col) return;
+        if (!id || !col) return;         // preview não tem __id → não edita
         const newVal = td.textContent;
         if (newVal === original) return;
 
@@ -421,7 +415,7 @@ console.log("canEdit =", canEdit);
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id, changes: { [col]: newVal } })
           });
-          if (!res.ok) throw new Error((await res.text()) || "Falha ao salvar");
+          if (!res.ok) throw new Error(await res.text());
           original = newVal;
           td.classList.remove("cell-saving");
           td.classList.add("cell-ok");
@@ -429,50 +423,61 @@ console.log("canEdit =", canEdit);
         }catch(e){
           td.classList.remove("cell-saving");
           td.classList.add("cell-error");
-          td.textContent = original;             // rollback
+          td.textContent = original;  // rollback
           setTimeout(()=>td.classList.remove("cell-error"), 900);
-          toast("Erro ao salvar: " + e.message, "error");
+          setStatus("Erro ao salvar: " + e.message);
         }
       };
-
-      td.addEventListener("focus", () => { original = td.textContent; });
+      td.addEventListener("focus", () => original = td.textContent);
       td.addEventListener("blur", save);
       td.addEventListener("keydown", (e) => {
         if (e.key === "Enter"){ e.preventDefault(); td.blur(); }
         if (e.key === "Escape"){ td.textContent = original; td.blur(); }
       });
-      td.addEventListener("dblclick", () => {
-        const r = document.createRange(); r.selectNodeContents(td);
-        const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
-      });
+      td.addEventListener("dblclick", () => { const r = document.createRange(); r.selectNodeContents(td); const s = getSelection(); s.removeAllRanges(); s.addRange(r); });
     });
   }
 
-  // PREVIEW (upload → preview leve)
+  // preview
   async function doPreview(){
     if (!$file?.files?.[0]) { setStatus("Escolha um arquivo CSV."); return; }
     setStatus("Gerando pré-visualização…");
-    $btnSave.disabled = true;
+    $btnSave && ($btnSave.disabled = true);
+
     const fd = new FormData();
     fd.append("file", $file.files[0]);
-    const url = `/api/upload-csv?only_pertinentes=${$onlyPert?.checked ? "true" : "false"}`;
+    // seu backend lê "columns" quando quer filtrar as pertinentes
+    if ($onlyPert?.checked){
+      const PERTINENTES_DEFAULT = [
+        "municipio","cnes","nome_fantasia","profissional_nome","profissional_cns",
+        "profissional_atende_sus","profissional_cbo","carga_horaria_ambulatorial_sus",
+        "carga_horaria_outros","profissional_vinculo","equipe_ine","tipo_equipe",
+        "equipe_subtipo","equipe_nome","equipe_area","equipe_dt_ativacao",
+        "equipe_dt_desativacao","equipe_dt_entrada","equipe_dt_desligamento",
+        "natureza_juridica"
+      ];
+      fd.append("columns", JSON.stringify(PERTINENTES_DEFAULT));
+    }
+
     try{
-      const res = await fetch(url, { method:"POST", body: fd });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();   // {columns, rows, total}
-      previewColumns = data.columns || [];
-      previewRows    = data.rows || [];
-      renderTable(previewColumns, previewRows);
-      setStatus(`Pré-visualização: ${previewRows.length} de ${data.total} linha(s).`);
-      $btnSave.disabled = previewRows.length === 0;
+      const res = await fetch("/api/upload-csv", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.detail || "Falha ao pré-visualizar");
+      previewRows = data.rows || [];
+      const columns = (data.columns && data.columns.length ? data.columns : (previewRows[0] ? Object.keys(previewRows[0]) : [])).filter(c => c !== "__id");
+      renderTable(columns, previewRows);
+      setStatus(`Pré-visualização: ${previewRows.length} linha(s).`);
+      if ($btnSave) $btnSave.disabled = previewRows.length === 0;
       if ($pager) $pager.hidden = true;
-    }catch(e){ setStatus("Erro ao pré-visualizar: " + e.message); }
+    }catch(e){
+      setStatus("Erro ao pré-visualizar: " + e.message);
+    }
   }
 
-  // SALVAR (usa o preview mostrado)
+  // salvar
   async function doSave(){
     if (!previewRows.length) { setStatus("Nada para salvar."); return; }
-    setStatus("Salvando no banco…"); $btnSave.disabled = true;
+    setStatus("Salvando no banco…"); if ($btnSave) $btnSave.disabled = true;
     try{
       const res = await fetch("/api/reports/save", {
         method:"POST",
@@ -480,42 +485,46 @@ console.log("canEdit =", canEdit);
         body: JSON.stringify({ rows: previewRows })
       });
       const out = await res.json();
-      if (!res.ok) throw new Error(out?.detail || JSON.stringify(out));
+      if (!res.ok) throw new Error(out?.detail || "Falha ao salvar");
       setStatus("✅ " + (out.message || "Salvo."));
-      // Após salvar, recarrega os dados do banco (com __id) e liga espelho
       curPage = 1;
       await loadSaved(curPage);
       startVersionPolling();
     }catch(e){
       setStatus("Erro ao salvar: " + e.message);
     }finally{
-      $btnSave.disabled = false;
+      if ($btnSave) $btnSave.disabled = false;
     }
   }
 
-  // CARREGAR SALVO (paginação simples)
+  // listar dados salvos
   async function loadSaved(page){
     try{
       const res = await fetch(`/api/reports/data?page=${page}&page_size=${pageSize}`);
-      const data = await res.json(); // {columns, rows, total, page, version}
-      total   = data.total || 0;
-      curPage = data.page  || 1;
+      const data = await res.json();
+
+      const rows = data.rows || [];
+      // tenta descobrir colunas se o backend não mandar "columns"
+      const columns = (data.columns && data.columns.length ? data.columns : (rows[0] ? Object.keys(rows[0]) : [])).filter(c => c !== "__id");
+
+      total   = data.total ?? (rows.length || 0);
+      curPage = data.page  ?? page;
       lastVersion = data.version || 0;
 
-      const cols = (data.columns || []).filter(c => c !== "__id");
-      renderTable(cols, data.rows || []);
-      setStatus(`Mostrando página ${curPage} de ${Math.max(1, Math.ceil(total/pageSize))} (total ${total})`);
-      if ($pager){
-        $pager.hidden = total <= pageSize;
-        if ($pageInfo) $pageInfo.textContent = `Página ${curPage} / ${Math.max(1, Math.ceil(total/pageSize))}`;
-      }
+      renderTable(columns, rows);
+
+      const last = Math.max(1, Math.ceil((total || rows.length) / pageSize));
+      if ($pageInfo) $pageInfo.textContent = `Página ${curPage} / ${last}`;
+      if ($pager) $pager.hidden = rows.length === 0 || last <= 1;
+
+      setStatus(rows.length ? `Mostrando página ${curPage} de ${last} (total ${total || rows.length})` : "Sem dados.");
     }catch(e){
       setStatus("Erro ao carregar dados: " + e.message);
       if ($pager) $pager.hidden = true;
     }
   }
 
-  // ESPELHO (Admin/Gestor) via versão
+  // espelho simples por versão (se o backend fornecer)
   function startVersionPolling(){
     if (versionTimer) clearInterval(versionTimer);
     versionTimer = setInterval(async () => {
@@ -530,16 +539,15 @@ console.log("canEdit =", canEdit);
     }, 5000);
   }
 
-  // Bind de botões
-  $btnPreview?.addEventListener("click", doPreview);
-  $btnSave?.addEventListener("click", doSave);
-  $prev?.addEventListener("click", () => { if (curPage > 1) loadSaved(--curPage); });
-  $next?.addEventListener("click", () => {
-    const last = Math.max(1, Math.ceil(total / pageSize));
+  // bind
+  $btnPreview && $btnPreview.addEventListener("click", doPreview);
+  $btnSave    && $btnSave.addEventListener("click", doSave);
+  $prev       && $prev.addEventListener("click", () => { if (curPage > 1) loadSaved(--curPage); });
+  $next       && $next.addEventListener("click", () => {
+    const last = Math.max(1, Math.ceil((total || 0) / pageSize));
     if (curPage < last) loadSaved(++curPage);
   });
 
-  // Carga inicial: mostra o que está no banco (se houver)
+  // carga inicial
   loadSaved(curPage).then(startVersionPolling);
 })();
-
