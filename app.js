@@ -104,7 +104,7 @@ function attachToggleButtons(){
       input.type = toText ? "text" : "password";
 
       // alterna o ícone (eye/eye-off)
-      btn.classList.toggle("is-on", toText);
+     // btn.classList.toggle("is-on", toText); 
 
       // acessibilidade opcional
       btn.setAttribute("aria-pressed", String(toText));
