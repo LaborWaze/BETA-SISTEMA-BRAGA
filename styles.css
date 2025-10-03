@@ -232,9 +232,9 @@ body{
 }
 
 /* botão do olho: sem caixa, só o ícone, por cima do input */
-.password-wrapper { 
+/*.password-wrapper { 
   position: relative; 
-}    
+}  */  
        /* importantíssimo */
 .password-wrapper .icon-btn{
   position: absolute; right: 8px; top: 50%;
