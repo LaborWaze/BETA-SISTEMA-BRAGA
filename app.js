@@ -130,8 +130,8 @@ function attachToggleButtons(){
   if (toggle){
     toggle.addEventListener("click", () => {
       const input = document.getElementById("password");
-      input.type = input.type === "password" ? "text" : "password";
-      toggle.classList.toggle("is-on", input.type === "text"); // <<< mantém só 1 ícone visível
+      input.type = input.type === "password" ? "" : "password"; // text baixo
+      toggle.classList.toggle("is-on", input.type === ""); // <<< mantém só 1 ícone visível
     });
   }
 
