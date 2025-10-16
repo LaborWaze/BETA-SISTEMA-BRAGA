@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Relatórios • Painel</title>
+  <link rel="stylesheet" href="./styles.css"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    .toolbar { display:flex; gap:12px; align-items:center; margin:16px 0; flex-wrap:wrap; }
+    .chip { padding:6px 10px; border-radius:999px; background:#eef0f3; font-size:12px; }
+    .table-wrap { overflow:auto; border:1px solid #e5e7eb; border-radius:12px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { padding:10px 12px; border-bottom:1px solid #eee; }
+    tr:nth-child(even) td { background:#fafafa; }
+    .btn { padding:10px 14px; border-radius:10px; border:1px solid #e5e7eb; background:white; cursor:pointer; }
+    .btn.primary { background:#111827; color:white; border-color:#111827; }
+    .muted { color:#6b7280; }
+    .hidden { display:none !important; }
+  </style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="brand-name">Painel Corporativo</span></div>
+  <div class="user-info">
+    <span id="userName" class="badge"></span>
+    <span id="userRole" class="badge"></span>
+    <button id="logoutBtn" class="btn btn-secondary">Sair</button>
+  </div>
+</header>
+
+<main class="main">
+  <h2 class="page-title">Relatórios</h2>
+  
+  <div class="toolbar">
+    <input id="csvFile" type="file" accept=".csv" />
+    <label class="chk">
+      <input id="onlyPert" type="checkbox" checked />
+      Mostrar só colunas pertinentes
+    </label>
+    <button id="previewBtn" class="btn">Pré-visualizar</button>
+    <button id="saveBtn" class="btn primary" disabled>Salvar no banco</button>
+  </div>
+  
+  <div id="statusMsg" class="muted" style="margin:.5rem 0;"></div>
+  
+  <!-- preview / dados salvos -->
+  <div id="tableWrap" class="table-wrap">
+    <table id="dataTable" class="tbl">
+      <!-- cabeçalho/linhas renderizados via JS -->
+    </table>
+  </div>
+  
+  <!-- paginação (para dados salvos) -->
+  <div id="pager" class="pager" hidden>
+    <button id="prevPage" class="btn">◀</button>
+    <span id="pageInfo" class="muted"></span>
+    <button id="nextPage" class="btn">▶</button>
+  </div>
+
+</main>
+<script src="./app.js"></script>
+</body>
+</html>

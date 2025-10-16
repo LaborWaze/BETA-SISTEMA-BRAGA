@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Painel Corporativo</title>
+    <link rel="stylesheet" href="./styles.css"/>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-name">Painel Corporativo</span>
+      </div>
+      <div class="user-info">
+        <span id="userName" class="badge"></span>
+        <span id="userRole" class="badge"></span>
+        <button id="logoutBtn" class="btn btn-secondary">Sair</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <h2 id="dashTitle" class="title">Bem-vindo(a)</h2>
+      <section class="grid-3" id="grid"></section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

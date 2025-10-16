@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>W.A. Braga • Alterar Senha</title>
+    <link rel="stylesheet" href="./styles.css"/>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <main class="shell shell--split">
+      <!-- Lado visual (reaproveita o herói do login) -->
+      <aside class="hero">
+        <div class="hero__content">
+         <!-- <img src="./img/logo02.png" alt="W.A. Braga Consultoria" class="hero__logo"/> -->
+          <h1 class="hero__title_forgot">Recuperação de Acesso</h1>
+          <p class="hero__subtitle_forgot">Defina uma nova senha para continuar.</p>
+          <ul class="hero__bullets_forgot">
+            <li>Fluxo ilustrativo (sem envio de e-mail)</li>
+            <li>Armazena a nova senha localmente</li>
+            <li>Compatível com papéis: admin, gestor e colaborador</li>
+          </ul>
+        </div>
+        <div class="shape shape--1"></div>
+        <div class="shape shape--2"></div>
+        <div class="shape shape--3"></div>
+      </aside> 
+
+      <!-- Card de redefinição -->
+      <section class="login-card-forgot">
+        <header class="login-card__header">
+          <img src="./img/logo_B_tight.png" alt="" class="login-card__brand" />
+          <h2>Alterar Senha</h2>
+          <p class="muted">Informe seu usuário e crie uma nova senha.</p>
+        </header>
+
+        <form id="forgotForm" class="form" novalidate>
+          <div class="field">
+            <label for="fUser">Usuário</label>
+            <input id="fUser" name="fUser" type="text" placeholder="ex: admin" autocomplete="username" required />
+            <small class="error" data-error-for="fUser"></small>
+          </div>
+
+          <div class="field">
+            <label for="fPwd">Nova senha</label>
+            <div class="password-wrapper">
+              <input id="fPwd" name="fPwd" type="password" placeholder="••••••••" minlength="4" required />
+              <button type="button" class="icon-btn" data-toggle="#fPwd" aria-label="Mostrar/ocultar">
+                <img src="./icons/eye-off.png"     class="icon-img eye"     alt="">
+                <img src="./icons/eye.png" class="icon-img eye-off" alt="">
+              </button>
+            </div>
+            <small class="error" data-error-for="fPwd"></small>
+          </div>
+
+          <div class="field">
+            <label for="fPwd2">Confirmar senha</label>
+            <div class="password-wrapper">
+              <input id="fPwd2" name="fPwd2" type="password" placeholder="••••••••" minlength="4" required />
+              <button type="button" class="icon-btn" data-toggle="#fPwd2" aria-label="Mostrar/ocultar">
+                <img src="./icons/eye-off.png"     class="icon-img eye"     alt="">
+                <img src="./icons/eye.png" class="icon-img eye-off" alt="">
+              </button>
+            </div>
+            <small class="error" data-error-for="fPwd2"></small>
+          </div>
+
+          <div class="row-between">
+            <a class="link" href="index.html"></a>
+            <button class="btn btn-primary" type="submit">Salvar nova senha</button>
+          </div>
+
+          <p id="forgotMsg" class="notice" style="display:none; margin-top:12px;"></p>
+        </form>
+
+        <footer class="login-card__footer">
+          <small class="muted">© 2025 W.A. Braga Consultoria</small>
+        </footer>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
